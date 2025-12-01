@@ -91,7 +91,6 @@ def consultar_danfe_meudanfe(chave_acesso, token_api, base_url=None):
     resultados = []
     add_url = f"{base_root}/fd/add/{chave_acesso}"
     try:
-        st.write(f"🔍 Solicitando adição/consulta em {add_url} (PUT)")
         # O endpoint /v2/fd/add/{chave} usa PUT conforme documentação
         response = requests.put(add_url, headers=headers, timeout=15)
 
@@ -106,7 +105,6 @@ def consultar_danfe_meudanfe(chave_acesso, token_api, base_url=None):
             # Se a operação retornou OK, tentamos baixar o XML (caso exista na Área do Cliente)
             try:
                 get_xml_url = f"{base_root}/fd/get/xml/{chave_acesso}"
-                st.write(f"🔎 Tentando obter XML em {get_xml_url} (GET)")
                 r2 = requests.get(get_xml_url, headers=headers, timeout=15)
                 resultados.append({'endpoint': get_xml_url, 'status_code': r2.status_code, 'resposta': r2.text[:200] if r2.text else 'Vazio'})
 
@@ -442,9 +440,7 @@ def salvar_conferencia(dados_nfe, dados_manuais, polo, usuario, produtos, result
             # Campos adicionais para controle interno
             'chave_acesso': dados_nfe.get('chave_acesso', ''),
             'usuario': usuario,
-            'data_conferencia': datetime.now().strftime("%d/%m/%Y %H:%M:%S"),
-            'meudanfe_sucesso': resultado_meudanfe.get('sucesso', False) if resultado_meudanfe else False,
-            'meudanfe_erro': resultado_meudanfe.get('erro', '') if resultado_meudanfe else ''
+            'Data de conferência': datetime.now().strftime("%d/%m/%Y %H:%M:%S"),
         }
         registros.append(registro)
     
@@ -457,13 +453,10 @@ def salvar_conferencia(dados_nfe, dados_manuais, polo, usuario, produtos, result
             df_existente = pd.read_csv(arquivo, encoding=encoding, sep=';')
             
             # Verificar se as colunas internas existem
-            colunas_internas = ['chave_acesso', 'usuario', 'data_conferencia', 'meudanfe_sucesso', 'meudanfe_erro']
+            colunas_internas = ['chave_acesso', 'usuario', 'Data de conferência']
             for coluna in colunas_internas:
                 if coluna not in df_existente.columns:
-                    if coluna == 'meudanfe_sucesso':
-                        df_existente[coluna] = False
-                    else:
-                        df_existente[coluna] = ''
+                    df_existente[coluna] = ''
             
             df_final = pd.concat([df_existente, df], ignore_index=True)
         else:
@@ -555,15 +548,15 @@ def mostrar_sistema_principal():
     
     # Status API (informativo apenas)
     if token_meudanfe:
-        st.sidebar.success("✅ API Configurada")
+        st.sidebar.success("✅ Sistema Online")
     else:
-        st.sidebar.error("❌ API Não Configurada")
+        st.sidebar.error("❌ Sistema Offline")
     
     if st.sidebar.button("🚪 Sair"):
         st.session_state.logged_in = False
         st.rerun()
     
-    tab1, tab2, tab3, tab4, tab5 = st.tabs(["🎯 Nova Conferência", "📊 Histórico", "📋 Relatórios", "📤 Importar", "ℹ️ Ajuda"])
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(["📝 Nova Conferência", "📊 Histórico", "📋 Relatórios", "📤 Importar", "ℹ️ Ajuda"])
     
     with tab1:
         mostrar_nova_conferencia(polo, usuario, token_meudanfe)
@@ -578,7 +571,7 @@ def mostrar_sistema_principal():
 
 def mostrar_nova_conferencia(polo, usuario, token_meudanfe):
     """Aba para nova conferência (interface simples para leigos)"""
-    st.header("🎯 Nova Conferência de DANFE")
+    st.header("📝 Consultar DANFE")
     
     col1, col2 = st.columns([2, 1])
     
@@ -619,8 +612,6 @@ def mostrar_nova_conferencia(polo, usuario, token_meudanfe):
                         )
                         
                         if resultado_meudanfe.get('sucesso'):
-                            st.success("✅ Requisição enviada/confirmada com sucesso.")
-
                             produtos = []
                             # Se o serviço retornou o XML, mostramos para o usuário (não fazemos parsing completo do XML)
                             # Se o XML foi retornado, usar o parser para extrair dados e produtos
@@ -662,7 +653,7 @@ def mostrar_nova_conferencia(polo, usuario, token_meudanfe):
                             st.session_state.resultado_meudanfe = resultado_meudanfe
                             st.session_state.produtos = produtos
                             st.info(f"📦 **{len(produtos)} produto(s) (resultado da consulta)**")
-                            st.info("⚠️ O campo 'Check' ficará em branco — o funcionário deverá preencher manualmente antes de salvar.")
+                            st.info("⚠️ O campo 'Check' ficará em branco — o funcionário deverá preencher na conferencia")
                             
                         else:
                             st.error(f"❌ {resultado_meudanfe.get('erro', 'Erro na consulta')}")
@@ -693,10 +684,11 @@ def mostrar_nova_conferencia(polo, usuario, token_meudanfe):
     with col2:
         st.subheader("Informações do Polo")
         st.info(f"""
-        **Polo:** {polo}
-        **Usuário:** {usuario}
-        **Data:** {datetime.now().strftime("%d/%m/%Y")}
-        **Status API:** {'✅ Configurada' if token_meudanfe else '❌ Não Configurada'}
+        **:green-badge[:material/home:]** - {polo}  
+
+        **:green-badge[:material/person:]** - {usuario}  
+
+        **:green-badge[:material/Event:]** - {datetime.now().strftime("%d/%m/%Y")}
         """)
         
         if 'resultado_meudanfe' in st.session_state:
