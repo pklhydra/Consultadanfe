@@ -533,8 +533,8 @@ def mostrar_nova_conferencia(polo, usuario):
                     st.error(f"❌ {resultado.get('erro', 'Erro na consulta')}")
             else:
                 st.error(f"Erro: {dados_nfe['erro']}")
-    else:
-        st.error("Chave de acesso deve conter exatamente 44 dígitos numéricos!")
+        else:
+            st.error("Chave de acesso deve conter exatamente 44 dígitos numéricos!")
     
     with col2:
         st.subheader("Informações do Polo")
@@ -892,6 +892,7 @@ def mostrar_ajuda():
 # ===============================
 if __name__ == "__main__":
     main()
+
 
 
 
