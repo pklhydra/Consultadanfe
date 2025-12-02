@@ -6,7 +6,9 @@ import os
 import base64
 from io import BytesIO
 import time
-# no additional tempfile usage after simplification
+import gspread
+from google.oauth2.service_account import Credentials
+import json
 
 # Configuração da página
 st.set_page_config(
@@ -406,94 +408,132 @@ def _is_number(s: str) -> bool:
     except Exception:
         return False
 
-# Resto das funções (salvar_conferencia, carregar_dados_historico, etc.) permanecem iguais...
-def detectar_encoding(arquivo):
-    """Detecta o encoding do arquivo"""
-    encodings = ['utf-8', 'latin-1', 'iso-8859-1', 'cp1252', 'windows-1252']
-    
-    for encoding in encodings:
-        try:
-            with open(arquivo, 'r', encoding=encoding) as f:
-                f.read()
-            return encoding
-        except UnicodeDecodeError:
-            continue
-    return 'utf-8'
+# ===============================
+# FUNÇÕES ATUALIZADAS PARA GOOGLE SHEETS
+# ===============================
+
+def conectar_google_sheets():
+    """Conecta ao Google Sheets usando as credenciais do secrets.toml"""
+    try:
+        # Carrega as credenciais do secrets.toml
+        scopes = ["https://www.googleapis.com/auth/spreadsheets"]
+        
+        # Verifica se as credenciais estão disponíveis
+        if 'gcp_service_account' not in st.secrets:
+            st.error("⚠️ Credenciais do Google Sheets não configuradas!")
+            st.info("Por favor, configure o arquivo .streamlit/secrets.toml")
+            return None
+        
+        credentials_dict = dict(st.secrets["gcp_service_account"])
+        credentials = Credentials.from_service_account_info(
+            credentials_dict, 
+            scopes=scopes
+        )
+        
+        client = gspread.authorize(credentials)
+        return client
+    except Exception as e:
+        st.error(f"❌ Erro ao conectar ao Google Sheets: {str(e)}")
+        return None
 
 def salvar_conferencia(dados_nfe, dados_manuais, polo, usuario, produtos, resultado_meudanfe=None):
-    """Salva os dados no formato do template fornecido - UM REGISTRO POR PRODUTO"""
-    registros = []
-    
-    for produto in produtos:
-        registro = {
-            'Polo': polo,
-            'Operação': dados_manuais.get('operacao', ''),
-            'Data Carga': datetime.now().strftime("%d/%m/%Y"),
-            'Carga': dados_manuais.get('carga', ''),
-            'NF': dados_nfe.get('numero_nota', ''),
-            'Cód. Produto': produto.get('codigo', ''),
-            'Descrição Produto': produto.get('descricao', ''),
-            'Quant.': produto.get('quantidade', 1),
-            'Data Devolução': datetime.now().strftime("%d/%m/%Y"),
-            # Deixamos o campo Check em branco para que o funcionário preencha manualmente
-            'Check': '',
-            # Campos adicionais para controle interno
-            'chave_acesso': dados_nfe.get('chave_acesso', ''),
-            'usuario': usuario,
-            'Data de conferência': datetime.now().strftime("%d/%m/%Y %H:%M:%S"),
-        }
-        registros.append(registro)
-    
+    """Salva os dados no Google Sheets"""
     try:
-        df = pd.DataFrame(registros)
-        arquivo = f'conferencias_{polo}.csv'
+        # Conecta ao Google Sheets
+        client = conectar_google_sheets()
+        if not client:
+            return False, "Não foi possível conectar ao Google Sheets"
         
-        if os.path.exists(arquivo):
-            encoding = detectar_encoding(arquivo)
-            df_existente = pd.read_csv(arquivo, encoding=encoding, sep=';')
-            
-            # Verificar se as colunas internas existem
-            colunas_internas = ['chave_acesso', 'usuario', 'Data de conferência']
-            for coluna in colunas_internas:
-                if coluna not in df_existente.columns:
-                    df_existente[coluna] = ''
-            
-            df_final = pd.concat([df_existente, df], ignore_index=True)
-        else:
-            df_final = df
+        # Abre a planilha pelo ID (do secrets.toml)
+        spreadsheet_id = st.secrets.get("spreadsheet_id", "1n0zMI7hO6q5ZDHHK-BkCoMTNdyUUqbl8bwMUYk7Jaj4")
+        spreadsheet = client.open_by_key(spreadsheet_id)
         
-        # Salva no formato do template (separador ;)
-        df_final.to_csv(arquivo, index=False, sep=';', encoding='utf-8')
-        return True, arquivo
+        # Cria nome da aba (remove espaços)
+        nome_aba = polo.replace(" ", "_")
+        
+        # Tenta acessar a aba existente ou cria uma nova
+        try:
+            worksheet = spreadsheet.worksheet(nome_aba)
+        except gspread.exceptions.WorksheetNotFound:
+            # Cria nova aba
+            worksheet = spreadsheet.add_worksheet(
+                title=nome_aba, 
+                rows=1000, 
+                cols=15
+            )
+            # Adiciona cabeçalhos
+            headers = [
+                'Polo', 'Operação', 'Data Carga', 'Carga', 'NF', 
+                'Cód. Produto', 'Descrição Produto', 'Quant.', 
+                'Data Devolução', 'Check', 'chave_acesso', 'usuario', 
+                'Data de conferência', 'Observações'
+            ]
+            worksheet.append_row(headers)
+            st.success(f"✅ Nova aba '{nome_aba}' criada na planilha")
+        
+        # Adiciona cada produto como uma linha
+        for produto in produtos:
+            linha = [
+                polo,
+                dados_manuais.get('operacao', ''),
+                datetime.now().strftime("%d/%m/%Y"),
+                dados_manuais.get('carga', ''),
+                dados_nfe.get('numero_nota', ''),
+                produto.get('codigo', ''),
+                produto.get('descricao', ''),
+                produto.get('quantidade', 1),
+                datetime.now().strftime("%d/%m/%Y"),
+                '',  # Check vazio
+                dados_nfe.get('chave_acesso', ''),
+                usuario,
+                datetime.now().strftime("%d/%m/%Y %H:%M:%S"),
+                dados_manuais.get('observacoes', '')
+            ]
+            worksheet.append_row(linha)
+        
+        return True, f"Dados salvos no Google Sheets (aba: {nome_aba})"
+        
     except Exception as e:
         return False, str(e)
 
 def carregar_dados_historico(polo):
-    """Carrega dados do histórico no formato do template"""
-    arquivo = f'conferencias_{polo}.csv'
-    
-    if os.path.exists(arquivo):
-        try:
-            encoding = detectar_encoding(arquivo)
-            df = pd.read_csv(arquivo, encoding=encoding, sep=';')
-            
-            # Adicionar colunas internas se não existirem
-            colunas_internas = ['chave_acesso', 'usuario', 'data_conferencia', 'meudanfe_sucesso', 'meudanfe_erro']
-            for coluna in colunas_internas:
-                if coluna not in df.columns:
-                    if coluna == 'meudanfe_sucesso':
-                        df[coluna] = False
-                    else:
-                        df[coluna] = ''
-            
-            return df
-        except Exception as e:
-            st.error(f"Erro ao carregar arquivo: {str(e)}")
+    """Carrega dados do Google Sheets"""
+    try:
+        # Conecta ao Google Sheets
+        client = conectar_google_sheets()
+        if not client:
             return pd.DataFrame()
-    else:
+        
+        # Abre a planilha
+        spreadsheet_id = st.secrets.get("spreadsheet_id", "1n0zMI7hO6q5ZDHHK-BkCoMTNdyUUqbl8bwMUYk7Jaj4")
+        spreadsheet = client.open_by_key(spreadsheet_id)
+        
+        # Cria nome da aba (remove espaços)
+        nome_aba = polo.replace(" ", "_")
+        
+        try:
+            worksheet = spreadsheet.worksheet(nome_aba)
+            # Converte para DataFrame
+            data = worksheet.get_all_records()
+            
+            if data:
+                df = pd.DataFrame(data)
+                return df
+            else:
+                return pd.DataFrame()
+                
+        except gspread.exceptions.WorksheetNotFound:
+            # Se a aba não existe, retorna DataFrame vazio
+            return pd.DataFrame()
+            
+    except Exception as e:
+        st.error(f"Erro ao carregar dados: {str(e)}")
         return pd.DataFrame()
 
-    # Interface principal (simples para leigos)
+# ===============================
+# INTERFACE PRINCIPAL
+# ===============================
+
 def main():
     st.markdown('<h1 class="main-header">📦 Sistema de Conferência DANFE</h1>', unsafe_allow_html=True)
     
@@ -540,11 +580,26 @@ def mostrar_sistema_principal():
     usuario = st.session_state.usuario
     # Lê configuração de base_url e token a partir do environment ou sidebar
     token_meudanfe = st.session_state.get('token_meudanfe', os.environ.get('MEUDANFE_TOKEN', 'fcf2af36-1fc9-4dfc-8b46-25bd19f54415'))
-    # token da API permanece pré-configurado (sessão/variável de ambiente) —
-    # não expomos campo para editar para evitar confusão de usuários leigos
     
     st.sidebar.title(f"🏢 {polo}")
     st.sidebar.write(f"Usuário: {usuario}")
+    
+    # Testa conexão com Google Sheets
+    if st.sidebar.button("📊 Testar Conexão Google Sheets"):
+        client = conectar_google_sheets()
+        if client:
+            st.sidebar.success("✅ Conectado ao Google Sheets")
+            # Mostra informações da planilha
+            try:
+                spreadsheet_id = st.secrets.get("spreadsheet_id", "1n0zMI7hO6q5ZDHHK-BkCoMTNdyUUqbl8bwMUYk7Jaj4")
+                spreadsheet = client.open_by_key(spreadsheet_id)
+                abas = [ws.title for ws in spreadsheet.worksheets()]
+                st.sidebar.info(f"Planilha: {spreadsheet.title}")
+                st.sidebar.info(f"Abas: {', '.join(abas)}")
+            except Exception as e:
+                st.sidebar.error(f"Erro ao acessar planilha: {str(e)}")
+        else:
+            st.sidebar.error("❌ Falha na conexão")
     
     # Status API (informativo apenas)
     if token_meudanfe:
@@ -583,8 +638,6 @@ def mostrar_nova_conferencia(polo, usuario, token_meudanfe):
             max_chars=44,
             key="chave_input"
         )
-
-        # Para manter a interface simples para usuários leigos não expomos opções de endpoint
         
         # Validação em tempo real
         if chave_acesso:
@@ -604,7 +657,6 @@ def mostrar_nova_conferencia(polo, usuario, token_meudanfe):
                     
                     if 'erro' not in dados_nfe:
                         # Consulta a API MeuDanfe
-                        # passa base_url opcional quando informado
                         resultado_meudanfe = consultar_danfe_meudanfe(
                             chave_acesso,
                             st.session_state.get('token_meudanfe', token_meudanfe),
@@ -684,30 +736,26 @@ def mostrar_nova_conferencia(polo, usuario, token_meudanfe):
     with col2:
         st.subheader("Informações do Polo")
         st.info(f"""
-        **:green-badge[:material/home:]** - {polo}  
-
-        **:green-badge[:material/person:]** - {usuario}  
-
-        **:green-badge[:material/Event:]** - {datetime.now().strftime("%d/%m/%Y")}
+        **🏢 Polo:** {polo}  
+        **👤 Usuário:** {usuario}  
+        **📅 Data:** {datetime.now().strftime("%d/%m/%Y")}
         """)
+        
+        # Status do Google Sheets
+        client = conectar_google_sheets()
+        if client:
+            st.success("✅ Google Sheets: Conectado")
+        else:
+            st.error("❌ Google Sheets: Desconectado")
         
         if 'resultado_meudanfe' in st.session_state:
             resultado = st.session_state.resultado_meudanfe
             if resultado.get('sucesso'):
-                # Quando disponível, mostre o status retornado pela API (ex: OK, WAITING, SEARCHING)
-                dados = resultado.get('dados') or {}
-                status = datos_status = None
-                if isinstance(dados, dict):
-                    status = dados.get('status') or dados.get('statusMessage')
-
-                if status:
-                    st.success(f"Última consulta: ✅ {status}")
-                else:
-                    st.success("Última consulta: ✅ Sucesso")
+                st.success("Última consulta: ✅ Sucesso")
             else:
                 st.error(f"Última consulta: ❌ {resultado.get('erro', 'Erro')}")
 
-    # Resto do código da conferência (igual ao anterior)
+    # Resto do código da conferência
     if 'dados_nfe' in st.session_state:
         dados_nfe = st.session_state.dados_nfe
         produtos = st.session_state.get('produtos', [])
@@ -779,7 +827,7 @@ def mostrar_nova_conferencia(polo, usuario, token_meudanfe):
                     sucesso, resultado = salvar_conferencia(dados_nfe, dados_manuais, polo, usuario, produtos, resultado_meudanfe)
                     
                     if sucesso:
-                        st.success(f"✅ {len(produtos)} registro(s) salvos com sucesso!")
+                        st.success(f"✅ {len(produtos)} registro(s) salvos com sucesso no Google Sheets!")
                         st.balloons()
                         if 'dados_nfe' in st.session_state:
                             del st.session_state.dados_nfe
@@ -803,11 +851,13 @@ def mostrar_nova_conferencia(polo, usuario, token_meudanfe):
                     del st.session_state.produtos
                 st.rerun()
 
-
-
 def mostrar_historico(polo):
     """Aba para visualizar histórico"""
     st.header("📊 Histórico de Conferências")
+    
+    # Testar conexão
+    if st.button("🔄 Atualizar Histórico"):
+        st.rerun()
     
     df = carregar_dados_historico(polo)
     
@@ -877,6 +927,7 @@ def mostrar_historico(polo):
         
     else:
         st.info("ℹ️ Nenhuma conferência registrada ainda.")
+        st.info("📝 As conferências serão salvas automaticamente no Google Sheets.")
 
 def mostrar_relatorios(polo):
     """Aba para gerar relatórios"""
@@ -897,6 +948,15 @@ def mostrar_relatorios(polo):
                 b64 = base64.b64encode(excel_buffer.read()).decode()
                 href = f'<a href="data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,{b64}" download="conferencias_{polo}.xlsx">📥 Clique para baixar o Excel</a>'
                 st.markdown(href, unsafe_allow_html=True)
+            
+            if st.button("📄 Exportar para CSV", width="stretch"):
+                csv_buffer = BytesIO()
+                df.to_csv(csv_buffer, index=False, sep=';', encoding='utf-8')
+                csv_buffer.seek(0)
+                
+                b64 = base64.b64encode(csv_buffer.read()).decode()
+                href = f'<a href="data:file/csv;base64,{b64}" download="conferencias_{polo}.csv">📥 Clique para baixar CSV</a>'
+                st.markdown(href, unsafe_allow_html=True)
         
         # Estatísticas
         st.subheader("📊 Estatísticas")
@@ -916,6 +976,12 @@ def mostrar_relatorios(polo):
             taxa_sucesso = (total_ok / len(df)) * 100 if len(df) > 0 else 0
             st.metric("Taxa de Sucesso", f"{taxa_sucesso:.1f}%")
         
+        # Gráfico de operações
+        if 'Operação' in df.columns:
+            st.subheader("📈 Distribuição por Operação")
+            operacoes_count = df['Operação'].value_counts()
+            st.bar_chart(operacoes_count)
+        
     else:
         st.info("ℹ️ Nenhum dado disponível para relatórios.")
 
@@ -926,7 +992,7 @@ def mostrar_importacao(polo, usuario):
     st.info("""
     **Importação em Lote**
     Faça o download do template, preencha com os dados das conferências 
-    e importe a planilha completa.
+    e importe a planilha completa para o Google Sheets.
     """)
     
     col1, col2 = st.columns(2)
@@ -935,7 +1001,6 @@ def mostrar_importacao(polo, usuario):
         st.subheader("📋 Baixar Template")
         
         if st.button("⬇️ Download Template", width="stretch"):
-            # Função exportar_template precisa ser definida
             template_buffer = BytesIO()
             df_template = pd.DataFrame(columns=['Polo', 'Operação', 'Data Carga', 'Carga', 'NF', 'Cód. Produto', 'Descrição Produto', 'Quant.', 'Data Devolução', 'Check'])
             df_template.to_excel(template_buffer, index=False)
@@ -946,16 +1011,24 @@ def mostrar_importacao(polo, usuario):
             st.markdown(href, unsafe_allow_html=True)
     
     with col2:
-        st.subheader("📤 Importar Planilha")
-        arquivo = st.file_uploader("Selecione a planilha para importar:", type=['xlsx', 'xls'])
+        st.subheader("📤 Importar para Google Sheets")
+        arquivo = st.file_uploader("Selecione a planilha para importar:", type=['xlsx', 'xls', 'csv'])
         
         if arquivo is not None:
-            if st.button("🚀 Importar Dados", width="stretch"):
-                with st.spinner("Importando dados..."):
-                    # Função importar_planilha precisa ser adaptada
+            if st.button("🚀 Importar Dados para Google Sheets", width="stretch"):
+                with st.spinner("Importando dados para o Google Sheets..."):
                     try:
-                        df = pd.read_excel(arquivo)
+                        if arquivo.name.endswith('.csv'):
+                            df = pd.read_csv(arquivo, sep=';')
+                        else:
+                            df = pd.read_excel(arquivo)
+                        
                         st.success(f"✅ {len(df)} registros carregados com sucesso!")
+                        st.dataframe(df.head())
+                        
+                        # Aqui você pode adicionar lógica para enviar para o Google Sheets
+                        # Por enquanto apenas mostra os dados
+                        
                     except Exception as e:
                         st.error(f"❌ Erro ao importar: {str(e)}")
 
@@ -980,13 +1053,25 @@ def mostrar_ajuda():
        - 🔢 **Solução:** Verifique se a chave tem exatamente 44 dígitos
        - Confirme se não há espaços ou caracteres especiais
     
-     4. **Problema Temporário do Servidor**
-         - 🌐 **Solução:** Tente novamente em alguns minutos
-         - Se o problema persistir, contate o suporte técnico do MeuDanfe
+    4. **Problema Temporário do Servidor**
+       - 🌐 **Solução:** Tente novamente em alguns minutos
+       - Se o problema persistir, contate o suporte técnico do MeuDanfe
     
     5. **Token de API Expirado**
        - 🗝️ **Solução:** Entre em contato com o administrador do sistema
        - Verifique se o token está correto no painel do MeuDanfe
+    
+    ### 📊 Problema: "Erro ao salvar no Google Sheets"
+    
+    1. **Credenciais não configuradas**
+       - ✅ **Solução:** Verifique se o arquivo `.streamlit/secrets.toml` está configurado corretamente
+    
+    2. **Planilha não compartilhada**
+       - ✅ **Solução:** Compartilhe sua planilha do Google Sheets com: 
+         `sistema-conferencia-danfe@sistema-conferencia-danfe.iam.gserviceaccount.com`
+    
+    3. **Permissões insuficientes**
+       - ✅ **Solução:** Garanta que a conta de serviço tem permissão de "Editor"
     
     ### 📞 Suporte Técnico
     
@@ -998,6 +1083,7 @@ def mostrar_ajuda():
     **Informações para o Suporte:**
     - Chave de acesso que está dando erro
     - Data e hora da consulta
+    - Mensagem de erro completa
     """)
 
 if __name__ == "__main__":
