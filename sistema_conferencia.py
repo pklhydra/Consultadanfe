@@ -10,19 +10,18 @@ import gspread
 from google.oauth2.service_account import Credentials
 import json
 
-def main():
-    # TESTE TEMPORÁRIO - REMOVA DEPOIS
-    st.write("### Testando Secrets...")
-    
-    try:
-        st.write("Google Sheets configurado?", 'gcp_service_account' in st.secrets)
-        st.write("Token MeuDanfe configurado?", 'MEUDANFE_TOKEN' in st.secrets)
-        st.write("Usuários configurados?", 'usuarios' in st.secrets)
-    except Exception as e:
-        st.error(f"Erro ao ler secrets: {e}")
-    
-    st.markdown('<h1 class="main-header">📦 Sistema de Conferência DANFE</h1>', unsafe_allow_html=True)
+import streamlit as st
 
+# Coloque isso no início do main() para testar:
+st.write("### Testando Secrets...")
+
+try:
+    st.write("Google Sheets configurado?", 'gcp_service_account' in st.secrets)
+    st.write("Token MeuDanfe configurado?", 'MEUDANFE_TOKEN' in st.secrets)
+    st.write("Usuários configurados?", 'usuarios' in st.secrets)
+except Exception as e:
+    st.error(f"Erro ao ler secrets: {e}")
+    
 #só tirar depois a def main
 
 # Configuração da página
@@ -103,42 +102,16 @@ def verificar_login(usuario, senha, polo):
 def consultar_danfe_meudanfe(chave_acesso, token_api=None, base_url=None):
     """Consulta simples do MeuDanfe usando secrets"""
     
-    # PRIMEIRO: Tenta usar o token passado como parâmetro
+    # Tenta usar o token passado como parâmetro
     if token_api:
         api_token = token_api
     else:
-        # SEGUNDO: Tenta pegar do secrets.toml
+        # Tenta pegar do secrets
         try:
-            # Importante: st.secrets pode não estar disponível em todos os contextos
-            if hasattr(st, 'secrets') and 'MEUDANFE_TOKEN' in st.secrets:
-                api_token = st.secrets["MEUDANFE_TOKEN"]
-            else:
-                # TERCEIRO: Tenta variável de ambiente
-                api_token = os.environ.get('MEUDANFE_TOKEN', '')
-        except Exception:
-            api_token = os.environ.get('MEUDANFE_TOKEN', '')
-    
-    # Se ainda não tem token, retorna erro
-    if not api_token:
-        return {"erro": "Token da API MeuDanfe não configurado. Verifique os Secrets do Streamlit."}
-    
-    # Pega base_url do secrets ou usa padrão
-    try:
-        if hasattr(st, 'secrets') and 'MEUDANFE_BASE_URL' in st.secrets:
-            default_root = st.secrets.get("MEUDANFE_BASE_URL", "https://api.meudanfe.com.br/v2")
-        else:
-            default_root = os.environ.get('MEUDANFE_BASE_URL', "https://api.meudanfe.com.br/v2")
-    except:
-        default_root = "https://api.meudanfe.com.br/v2"
-    
-    base_root = (base_url or default_root).rstrip('/')
-
-    headers = {
-        "Api-Key": api_token,
-        "Authorization": f"Bearer {api_token}",
-        "Content-Type": "application/json",
-        "User-Agent": "SistemaConferencia/1.0"
-    }
+            api_token = st.secrets["MEUDANFE_TOKEN"]
+        except KeyError:
+            st.error("⚠️ Token da API MeuDanfe não encontrado nos secrets!")
+            return {"erro": "Token da API não configurado"}
     
     # ... resto do código igual
 # ===============================
@@ -934,6 +907,7 @@ def mostrar_ajuda():
 # ===============================
 if __name__ == "__main__":
     main()
+
 
 
 
