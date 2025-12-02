@@ -509,7 +509,12 @@ def mostrar_nova_conferencia(polo, usuario):
                     dados_nfe = extrair_dados_da_chave(chave_acesso)
                     
                     if 'erro' not in dados_nfe:
-                        resultado_meudanfe = consultar_danfe_meudanfe(chave_acesso)
+                        try:
+                            token_api = st.session_state.get('token_meudanfe') or st.secrets.get("MEUDANFE_TOKEN", "")
+                        except:
+                            token_api = ""
+                            
+                        resultado_meudanfe = consultar_danfe_meudanfe(chave_acesso, token_api=token_api)
                         
                         if resultado_meudanfe.get('sucesso'):
                             produtos = []
@@ -929,5 +934,6 @@ def mostrar_ajuda():
 # ===============================
 if __name__ == "__main__":
     main()
+
 
 
