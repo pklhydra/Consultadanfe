@@ -10,21 +10,15 @@ import gspread
 from google.oauth2.service_account import Credentials
 import json
 
-import streamlit as st
+# ===============================
+# CONFIGURAÇÃO DA API MEUDANFE (DIRETA NO CÓDIGO)
+# ===============================
+MEUDANFE_API_TOKEN = "fcf2af36-1fc9-4dfc-8b46-25bd19f54415"  # Token fixo no código
+MEUDANFE_BASE_URL = "https://api.meudanfe.com.br/v2"  # URL da API
 
-# Coloque isso no início do main() para testar:
-st.write("### Testando Secrets...")
-
-try:
-    st.write("Google Sheets configurado?", 'gcp_service_account' in st.secrets)
-    st.write("Token MeuDanfe configurado?", 'MEUDANFE_TOKEN' in st.secrets)
-    st.write("Usuários configurados?", 'usuarios' in st.secrets)
-except Exception as e:
-    st.error(f"Erro ao ler secrets: {e}")
-    
-#só tirar depois a def main
-
-# Configuração da página
+# ===============================
+# CONFIGURAÇÃO DA PÁGINA
+# ===============================
 st.set_page_config(
     page_title="Sistema Conferência DANFE",
     page_icon="📦",
@@ -62,82 +56,73 @@ st.markdown("""
         border: 1px solid #bee5eb;
         color: #0c5460;
     }
-    .debug-box {
-        padding: 1rem;
-        border-radius: 0.5rem;
-        background-color: #fff3cd;
-        border: 1px solid #ffeaa7;
-        color: #856404;
-        font-family: monospace;
-        font-size: 0.9rem;
-    }
 </style>
 """, unsafe_allow_html=True)
 
 # ===============================
-# SISTEMA DE AUTENTICAÇÃO SEGURO
+# SISTEMA DE AUTENTICAÇÃO (USA SECRETS)
 # ===============================
 def verificar_login(usuario, senha, polo):
     """Sistema de autenticação usando secrets"""
     try:
         # Tenta pegar do secrets.toml
-        usuarios_validos = dict(st.secrets.get("usuarios", {}))
-        if usuarios_validos:
+        if 'usuarios' in st.secrets:
+            usuarios_validos = dict(st.secrets["usuarios"])
             return usuario in usuarios_validos and usuarios_validos[usuario] == senha
         else:
-            # Fallback para desenvolvimento local (REMOVA EM PRODUÇÃO)
-            usuarios_fallback = {
-                "admin": "admin123",
-                "polo_sp": "sp123",
-                "polo_rj": "rj123", 
-                "polo_mg": "mg123"
-            }
-            return usuario in usuarios_fallback and usuarios_fallback[usuario] == senha
-    except Exception:
+            st.warning("⚠️ Configuração de usuários não encontrada nos secrets")
+            return False
+    except Exception as e:
+        st.error(f"Erro na autenticação: {e}")
         return False
 
 # ===============================
-# API MEUDANFE SEGURO
+# API MEUDANFE (DIRETA NO CÓDIGO)
 # ===============================
-def consultar_danfe_meudanfe_simples(chave_acesso):
-    """Versão simplificada para teste"""
-    
-    # SEU TOKEN AQUI - Coloque diretamente no código para teste
-    API_TOKEN = "fcf2af36-1fc9-4dfc-8b46-25bd19f54415"
+def consultar_danfe_meudanfe(chave_acesso):
+    """Consulta a API do MeuDanfe com token embutido"""
     
     # Endpoint principal
-    endpoint = f"https://api.meudanfe.com.br/v2/nfe/chave/{chave_acesso}"
+    endpoint = f"{MEUDANFE_BASE_URL}/nfe/chave/{chave_acesso}"
     
     headers = {
-        "Api-Key": API_TOKEN,
-        "Authorization": f"Bearer {API_TOKEN}",
-        "Content-Type": "application/json"
+        "Api-Key": MEUDANFE_API_TOKEN,
+        "Authorization": f"Bearer {MEUDANFE_API_TOKEN}",
+        "Content-Type": "application/json",
+        "User-Agent": "SistemaConferencia/1.0"
     }
     
     try:
-        st.info(f"🔍 Consultando chave: {chave_acesso}")
-        st.info(f"📡 Endpoint: {endpoint}")
+        st.info(f"🔍 Consultando chave: {chave_acesso[:10]}...")
         
         response = requests.get(endpoint, headers=headers, timeout=30)
         
-        # Debug
-        with st.expander("🔧 Detalhes da consulta"):
+        # Debug (opcional)
+        with st.expander("🔧 Detalhes técnicos da consulta"):
+            st.write(f"**Endpoint:** {endpoint}")
             st.write(f"**Status Code:** {response.status_code}")
-            st.write(f"**Headers Enviados:** {headers}")
-            st.write(f"**Resposta Bruta:** {response.text[:500]}...")
+            st.write(f"**Resposta:** {response.text[:300]}...")
         
         if response.status_code == 200:
             dados = response.json()
             st.success("✅ API respondeu com sucesso!")
             return {"sucesso": True, "dados": dados}
+        elif response.status_code == 404:
+            return {"erro": "Nota fiscal não encontrada na base de dados"}
+        elif response.status_code == 401:
+            return {"erro": "Token de API inválido ou expirado"}
+        elif response.status_code == 403:
+            return {"erro": "Acesso não autorizado à API"}
         else:
-            st.error(f"❌ Erro {response.status_code}: {response.text}")
-            return {"erro": f"API retornou status {response.status_code}"}
+            return {"erro": f"Erro {response.status_code}: {response.text[:100]}"}
             
+    except requests.exceptions.Timeout:
+        return {"erro": "Tempo limite excedido na consulta à API"}
+    except requests.exceptions.ConnectionError:
+        return {"erro": "Erro de conexão com a API"}
     except Exception as e:
-        st.error(f"❌ Exceção na consulta: {str(e)}")
-        return {"erro": str(e)}
-    
+        return {"erro": f"Erro na consulta: {str(e)}"}
+
 # ===============================
 # FUNÇÕES AUXILIARES
 # ===============================
@@ -225,97 +210,17 @@ def processar_produtos_nota(dados_meudanfe):
         })
     return produtos
 
-def parse_xml_nfe(xml_text: str):
-    """Tenta parsear o XML da NF-e/CT-e"""
-    try:
-        import xml.etree.ElementTree as ET
-        xml = xml_text.strip()
-        root = ET.fromstring(xml)
-        infNFe = None
-        for elem in root.findall('.//{*}infNFe'):
-            infNFe = elem
-            break
-
-        parsed = {
-            'numero_nota': '',
-            'serie': '',
-            'data_emissao': '',
-            'emitente_cnpj': '',
-            'destinatario': '',
-            'valor_nota': '',
-            'produtos': []
-        }
-
-        if infNFe is not None:
-            ide = infNFe.find('.//{*}ide')
-            if ide is not None:
-                nNF = ide.find('{*}nNF')
-                serie = ide.find('{*}serie')
-                dhEmi = ide.find('{*}dhEmi') or ide.find('{*}dEmi') or ide.find('{*}dhEmissao')
-                if nNF is not None and nNF.text:
-                    parsed['numero_nota'] = nNF.text
-                if serie is not None and serie.text:
-                    parsed['serie'] = serie.text
-                if dhEmi is not None and dhEmi.text:
-                    parsed['data_emissao'] = dhEmi.text[:10]
-
-            emit = infNFe.find('{*}emit')
-            if emit is not None:
-                cnpj = emit.find('{*}CNPJ')
-                if cnpj is not None and cnpj.text:
-                    parsed['emitente_cnpj'] = cnpj.text
-
-            dest = infNFe.find('{*}dest')
-            if dest is not None:
-                nome = dest.find('{*}xNome')
-                if nome is not None and nome.text:
-                    parsed['destinatario'] = nome.text
-
-            icms_tot = infNFe.find('.//{*}ICMSTot')
-            if icms_tot is not None:
-                vNF = icms_tot.find('{*}vNF')
-                if vNF is not None and vNF.text:
-                    parsed['valor_nota'] = vNF.text
-
-            dets = infNFe.findall('.//{*}det')
-            for det in dets:
-                prod = det.find('{*}prod')
-                if prod is None:
-                    continue
-                cProd = prod.find('{*}cProd')
-                xProd = prod.find('{*}xProd')
-                qCom = prod.find('{*}qCom')
-                uCom = prod.find('{*}uCom')
-                produtos = {
-                    'codigo': cProd.text if cProd is not None and cProd.text else '',
-                    'descricao': xProd.text if xProd is not None and xProd.text else '',
-                    'quantidade': float(qCom.text) if qCom is not None and qCom.text and _is_number(qCom.text) else 1,
-                    'unidade': uCom.text if uCom is not None and uCom.text else 'UN'
-                }
-                parsed['produtos'].append(produtos)
-
-        return parsed
-    except Exception as e:
-        return {'erro': f'Erro ao parsear XML: {str(e)}'}
-
-def _is_number(s: str) -> bool:
-    try:
-        float(s)
-        return True
-    except Exception:
-        return False
-
 # ===============================
-# GOOGLE SHEETS (SEGURO)
+# GOOGLE SHEETS (USA SECRETS)
 # ===============================
 def conectar_google_sheets():
     """Conecta ao Google Sheets usando secrets"""
     try:
         scopes = ["https://www.googleapis.com/auth/spreadsheets"]
         
-        # Tenta pegar do secrets
+        # Verifica se tem as credenciais nos secrets
         if 'gcp_service_account' not in st.secrets:
-            st.error("⚠️ Credenciais do Google Sheets não configuradas!")
+            st.error("⚠️ Credenciais do Google Sheets não configuradas nos secrets!")
             return None
         
         credentials_dict = dict(st.secrets["gcp_service_account"])
@@ -326,7 +231,7 @@ def conectar_google_sheets():
         st.error(f"❌ Erro ao conectar ao Google Sheets: {str(e)}")
         return None
 
-def salvar_conferencia(dados_nfe, dados_manuais, polo, usuario, produtos, resultado_meudanfe=None):
+def salvar_conferencia(dados_nfe, dados_manuais, polo, usuario, produtos):
     """Salva os dados no Google Sheets"""
     try:
         client = conectar_google_sheets()
@@ -337,7 +242,7 @@ def salvar_conferencia(dados_nfe, dados_manuais, polo, usuario, produtos, result
         try:
             spreadsheet_id = st.secrets["spreadsheet_id"]
         except KeyError:
-            spreadsheet_id = "1n0zMI7hO6q5ZDHHK-BkCoMTNdyUUqbl8bwMUYk7Jaj4"
+            return False, "ID da planilha não configurado nos secrets"
         
         spreadsheet = client.open_by_key(spreadsheet_id)
         nome_aba = polo.replace(" ", "_")
@@ -387,7 +292,7 @@ def carregar_dados_historico(polo):
         try:
             spreadsheet_id = st.secrets["spreadsheet_id"]
         except KeyError:
-            spreadsheet_id = "1n0zMI7hO6q5ZDHHK-BkCoMTNdyUUqbl8bwMUYk7Jaj4"
+            return pd.DataFrame()
         
         spreadsheet = client.open_by_key(spreadsheet_id)
         nome_aba = polo.replace(" ", "_")
@@ -411,6 +316,16 @@ def carregar_dados_historico(polo):
 # ===============================
 def main():
     st.markdown('<h1 class="main-header">📦 Sistema de Conferência DANFE</h1>', unsafe_allow_html=True)
+    
+    # Verificação rápida dos secrets
+    with st.sidebar.expander("🔍 Status dos Secrets"):
+        try:
+            st.write("✅ Google Sheets:", 'gcp_service_account' in st.secrets)
+            st.write("✅ Planilha ID:", 'spreadsheet_id' in st.secrets)
+            st.write("✅ Usuários:", 'usuarios' in st.secrets)
+            st.write("✅ API MeuDanfe:", "Configurada no código" if MEUDANFE_API_TOKEN else "Não configurada")
+        except:
+            st.warning("Secrets não disponíveis")
     
     if 'logged_in' not in st.session_state:
         st.session_state.logged_in = False
@@ -449,8 +364,16 @@ def mostrar_sistema_principal():
     st.sidebar.title(f"🏢 {polo}")
     st.sidebar.write(f"Usuário: {usuario}")
     
+    # Status da API
+    st.sidebar.markdown("---")
+    st.sidebar.write("🔌 **Status da API:**")
+    if MEUDANFE_API_TOKEN and len(MEUDANFE_API_TOKEN) > 10:
+        st.sidebar.success("✅ API MeuDanfe Configurada")
+    else:
+        st.sidebar.error("❌ API Não Configurada")
+    
     # Testa conexão com Google Sheets
-    if st.sidebar.button("📊 Testar Conexão"):
+    if st.sidebar.button("📊 Testar Google Sheets"):
         client = conectar_google_sheets()
         if client:
             st.sidebar.success("✅ Conectado ao Google Sheets")
@@ -501,40 +424,48 @@ def mostrar_nova_conferencia(polo, usuario):
                 st.error(f"❌ {mensagem}")
         
         if st.button("🔍 Consultar Nota Fiscal", width="stretch"):
-    if len(chave_acesso) == 44 and chave_acesso.isdigit():
-        with st.spinner("Consultando nota fiscal... Isso pode levar alguns segundos"):
-            # Primeiro extrai dados básicos da chave
-            dados_nfe = extrair_dados_da_chave(chave_acesso)
-            
-            if 'erro' not in dados_nfe:
-                # AGORA USA A VERSÃO SIMPLES PARA TESTE
-                resultado = consultar_danfe_meudanfe_simples(chave_acesso)
-                
-                if resultado.get('sucesso'):
-                    st.balloons()
-                    st.success("✅ Nota fiscal encontrada via API!")
+            if len(chave_acesso) == 44 and chave_acesso.isdigit():
+                with st.spinner("Consultando nota fiscal via API MeuDanfe..."):
+                    dados_nfe = extrair_dados_da_chave(chave_acesso)
                     
-                    # Processa os dados...
-                    st.session_state.dados_nfe = dados_nfe
-                    st.session_state.resultado_meudanfe = resultado
-                    
-                    # Tenta extrair produtos
-                    produtos = []
-                    if 'dados' in resultado:
-                        produtos = processar_produtos_nota(resultado)
-                    
-                    if produtos:
-                        st.session_state.produtos = produtos
-                        st.success(f"📦 {len(produtos)} produto(s) encontrado(s)")
-                    else:
-                        st.warning("⚠️ Nenhum produto encontrado na nota")
+                    if 'erro' not in dados_nfe:
+                        resultado = consultar_danfe_meudanfe(chave_acesso)
                         
-                else:
-                    st.error(f"❌ {resultado.get('erro', 'Erro na consulta')}")
+                        if resultado.get('sucesso'):
+                            st.balloons()
+                            st.success("✅ Nota fiscal encontrada via API!")
+                            
+                            # Processa os dados...
+                            st.session_state.dados_nfe = dados_nfe
+                            st.session_state.resultado_meudanfe = resultado
+                            
+                            # Tenta extrair produtos
+                            produtos = []
+                            if 'dados' in resultado:
+                                produtos = processar_produtos_nota(resultado)
+                            
+                            if produtos:
+                                st.session_state.produtos = produtos
+                                st.success(f"📦 {len(produtos)} produto(s) encontrado(s)")
+                            else:
+                                st.warning("⚠️ Nenhum produto encontrado na nota")
+                                
+                        else:
+                            st.error(f"❌ {resultado.get('erro', 'Erro na consulta')}")
+                            
+                            # Salva mesmo com erro (dados básicos)
+                            st.session_state.dados_nfe = dados_nfe
+                            st.session_state.resultado_meudanfe = resultado
+                            st.session_state.produtos = [{
+                                'codigo': '001',
+                                'descricao': 'Produto - Consulta falhou',
+                                'quantidade': 1,
+                                'unidade': 'UN'
+                            }]
+                    else:
+                        st.error(f"Erro: {dados_nfe['erro']}")
             else:
-                st.error(f"Erro: {dados_nfe['erro']}")
-        else:
-            st.error("Chave de acesso deve conter exatamente 44 dígitos numéricos!")
+                st.error("Chave de acesso deve conter exatamente 44 dígitos numéricos!")
     
     with col2:
         st.subheader("Informações do Polo")
@@ -621,10 +552,9 @@ def mostrar_nova_conferencia(polo, usuario):
                         'observacoes': observacoes
                     }
                     
-                    resultado_meudanfe = st.session_state.get('resultado_meudanfe')
                     produtos = st.session_state.get('produtos', [])
                     
-                    sucesso, resultado = salvar_conferencia(dados_nfe, dados_manuais, polo, usuario, produtos, resultado_meudanfe)
+                    sucesso, resultado = salvar_conferencia(dados_nfe, dados_manuais, polo, usuario, produtos)
                     
                     if sucesso:
                         st.success(f"✅ {len(produtos)} registro(s) salvos com sucesso no Google Sheets!")
@@ -655,7 +585,6 @@ def mostrar_historico(polo):
     """Aba para visualizar histórico"""
     st.header("📊 Histórico de Conferências")
     
-    # Testar conexão
     if st.button("🔄 Atualizar Histórico"):
         st.rerun()
     
@@ -664,7 +593,6 @@ def mostrar_historico(polo):
     if not df.empty:
         st.metric("Total de Conferências", len(df))
         
-        # Estatísticas
         col1, col2, col3 = st.columns(3)
         with col1:
             if 'Check' in df.columns:
@@ -826,7 +754,6 @@ def mostrar_importacao(polo, usuario):
                         st.success(f"✅ {len(df)} registros carregados com sucesso!")
                         st.dataframe(df.head())
                         
-                        # Aqui você pode adicionar lógica para enviar para o Google Sheets
                         st.warning("⚠️ Funcionalidade de importação automática em desenvolvimento")
                         st.info("Por enquanto, copie os dados manualmente para o Google Sheets")
                         
@@ -834,7 +761,7 @@ def mostrar_importacao(polo, usuario):
                         st.error(f"❌ Erro ao importar: {str(e)}")
 
 def mostrar_ajuda():
-    """Aba de ajuda com soluções para problemas"""
+    """Aba de ajuda"""
     st.header("ℹ️ Ajuda e Solução de Problemas")
     
     st.markdown("""
@@ -844,41 +771,29 @@ def mostrar_ajuda():
     
     1. **Nota Fiscal Muito Recente**
        - ⏰ **Solução:** Aguarde 1-2 horas após a emissão
-       - Notas fiscais podem demorar para estar disponíveis na base nacional
     
-    2. **Problema com Certificado Digital**
-       - 🔐 **Solução:** Verifique no painel do MeuDanfe se o certificado está ativo
-       - Entre em contato com o suporte do MeuDanfe
-    
-    3. **Chave de Acesso Incorreta**
+    2. **Chave de Acesso Incorreta**
        - 🔢 **Solução:** Verifique se a chave tem exatamente 44 dígitos
-       - Confirme se não há espaços ou caracteres especiais
     
-    4. **Problema Temporário do Servidor**
+    3. **Problema Temporário do Servidor**
        - 🌐 **Solução:** Tente novamente em alguns minutos
-       - Se o problema persistir, contate o suporte técnico do MeuDanfe
     
-    5. **Token de API Expirado**
+    4. **Token de API Expirado**
        - 🗝️ **Solução:** Entre em contato com o administrador do sistema
-       - Verifique se o token está correto no painel do MeuDanfe
     
     ### 📊 Problema: "Erro ao salvar no Google Sheets"
     
-    1. **Credenciais não configuradas**
-       - ✅ **Solução:** Verifique se o arquivo `.streamlit/secrets.toml` está configurado corretamente
-    
-    2. **Planilha não compartilhada**
+    1. **Planilha não compartilhada**
        - ✅ **Solução:** Compartilhe sua planilha do Google Sheets com: 
          `sistema-conferencia-danfe@sistema-conferencia-danfe.iam.gserviceaccount.com`
     
-    3. **Permissões insuficientes**
+    2. **Permissões insuficientes**
        - ✅ **Solução:** Garanta que a conta de serviço tem permissão de "Editor"
     
     ### 📞 Suporte Técnico
     
     **Contate o MeuDanfe:**
     - Email: suporte@meudanfe.com.br
-    - Telefone: (11) 1234-5678
     - Painel: https://app.meudanfe.com.br
     
     **Informações para o Suporte:**
@@ -892,12 +807,3 @@ def mostrar_ajuda():
 # ===============================
 if __name__ == "__main__":
     main()
-
-
-
-
-
-
-
-
-
