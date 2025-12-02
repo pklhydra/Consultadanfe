@@ -99,39 +99,44 @@ def verificar_login(usuario, senha, polo):
 # ===============================
 # API MEUDANFE SEGURO
 # ===============================
-def consultar_danfe_meudanfe(chave_acesso, token_api=None, base_url=None):
-    """Consulta simples do MeuDanfe usando secrets"""
+def consultar_danfe_meudanfe_simples(chave_acesso):
+    """Versão simplificada para teste"""
     
-    # MÉTODO ALTERNATIVO - Mais robusto
-    api_token = None
+    # SEU TOKEN AQUI - Coloque diretamente no código para teste
+    API_TOKEN = "fcf2af36-1fc9-4dfc-8b46-25bd19f54415"
     
-    # 1. Tenta parâmetro
-    if token_api:
-        api_token = token_api
+    # Endpoint principal
+    endpoint = f"https://api.meudanfe.com.br/v2/nfe/chave/{chave_acesso}"
     
-    # 2. Tenta secrets do Streamlit
-    elif hasattr(st, 'secrets'):
-        try:
-            api_token = st.secrets.get("MEUDANFE_TOKEN")
-        except:
-            pass
+    headers = {
+        "Api-Key": API_TOKEN,
+        "Authorization": f"Bearer {API_TOKEN}",
+        "Content-Type": "application/json"
+    }
     
-    # 3. Tenta variável de ambiente (para desenvolvimento local)
-    if not api_token:
-        import os
-        api_token = os.environ.get("MEUDANFE_TOKEN")
-    
-    # 4. Se ainda não tem, mostra erro detalhado
-    if not api_token:
-        st.error("""
-        ⚠️ **TOKEN DA API NÃO CONFIGURADO**
+    try:
+        st.info(f"🔍 Consultando chave: {chave_acesso}")
+        st.info(f"📡 Endpoint: {endpoint}")
         
-        **Solução:**
-        1. Vá em Settings → Secrets no Streamlit Cloud
-        2. Adicione: `MEUDANFE_TOKEN = "seu-token-aqui"`
-        3. Reinicie o app
-        """)
-        return {"erro": "Token da API não configurado"}
+        response = requests.get(endpoint, headers=headers, timeout=30)
+        
+        # Debug
+        with st.expander("🔧 Detalhes da consulta"):
+            st.write(f"**Status Code:** {response.status_code}")
+            st.write(f"**Headers Enviados:** {headers}")
+            st.write(f"**Resposta Bruta:** {response.text[:500]}...")
+        
+        if response.status_code == 200:
+            dados = response.json()
+            st.success("✅ API respondeu com sucesso!")
+            return {"sucesso": True, "dados": dados}
+        else:
+            st.error(f"❌ Erro {response.status_code}: {response.text}")
+            return {"erro": f"API retornou status {response.status_code}"}
+            
+    except Exception as e:
+        st.error(f"❌ Exceção na consulta: {str(e)}")
+        return {"erro": str(e)}
     
 # ===============================
 # FUNÇÕES AUXILIARES
@@ -926,6 +931,7 @@ def mostrar_ajuda():
 # ===============================
 if __name__ == "__main__":
     main()
+
 
 
 
