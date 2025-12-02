@@ -99,21 +99,40 @@ def verificar_login(usuario, senha, polo):
 # ===============================
 # API MEUDANFE SEGURO
 # ===============================
-def consultar_danfe_meudanfe(chave_acesso, token_api= "fcf2af36-1fc9-4dfc-8b46-25bd19f54415", base_url=None):
+def consultar_danfe_meudanfe(chave_acesso, token_api=None, base_url=None):
     """Consulta simples do MeuDanfe usando secrets"""
     
-    # Tenta usar o token passado como parâmetro
+    # MÉTODO ALTERNATIVO - Mais robusto
+    api_token = None
+    
+    # 1. Tenta parâmetro
     if token_api:
         api_token = token_api
-    else:
-        # Tenta pegar do secrets
-        try:
-            api_token = st.secrets["MEUDANFE_TOKEN"]
-        except KeyError:
-            st.error("⚠️ Token da API MeuDanfe não encontrado nos secrets!")
-            return {"erro": "Token da API não configurado"}
     
-    # ... resto do código igual
+    # 2. Tenta secrets do Streamlit
+    elif hasattr(st, 'secrets'):
+        try:
+            api_token = st.secrets.get("MEUDANFE_TOKEN")
+        except:
+            pass
+    
+    # 3. Tenta variável de ambiente (para desenvolvimento local)
+    if not api_token:
+        import os
+        api_token = os.environ.get("MEUDANFE_TOKEN")
+    
+    # 4. Se ainda não tem, mostra erro detalhado
+    if not api_token:
+        st.error("""
+        ⚠️ **TOKEN DA API NÃO CONFIGURADO**
+        
+        **Solução:**
+        1. Vá em Settings → Secrets no Streamlit Cloud
+        2. Adicione: `MEUDANFE_TOKEN = "seu-token-aqui"`
+        3. Reinicie o app
+        """)
+        return {"erro": "Token da API não configurado"}
+    
 # ===============================
 # FUNÇÕES AUXILIARES
 # ===============================
@@ -907,6 +926,7 @@ def mostrar_ajuda():
 # ===============================
 if __name__ == "__main__":
     main()
+
 
 
 
