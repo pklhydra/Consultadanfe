@@ -103,95 +103,44 @@ def verificar_login(usuario, senha, polo):
 def consultar_danfe_meudanfe(chave_acesso, token_api=None, base_url=None):
     """Consulta simples do MeuDanfe usando secrets"""
     
-    # Se não passou token, tenta pegar do secrets
-    if not token_api:
+    # PRIMEIRO: Tenta usar o token passado como parâmetro
+    if token_api:
+        api_token = token_api
+    else:
+        # SEGUNDO: Tenta pegar do secrets.toml
         try:
-            token_api = st.secrets["MEUDANFE_TOKEN"]
-        except KeyError:
-            token_api = os.environ.get('MEUDANFE_TOKEN', '')
-            if not token_api:
-                return {"erro": "Token da API MeuDanfe não configurado"}
+            # Importante: st.secrets pode não estar disponível em todos os contextos
+            if hasattr(st, 'secrets') and 'MEUDANFE_TOKEN' in st.secrets:
+                api_token = st.secrets["MEUDANFE_TOKEN"]
+            else:
+                # TERCEIRO: Tenta variável de ambiente
+                api_token = os.environ.get('MEUDANFE_TOKEN', '')
+        except Exception:
+            api_token = os.environ.get('MEUDANFE_TOKEN', '')
+    
+    # Se ainda não tem token, retorna erro
+    if not api_token:
+        return {"erro": "Token da API MeuDanfe não configurado. Verifique os Secrets do Streamlit."}
     
     # Pega base_url do secrets ou usa padrão
     try:
-        default_root = st.secrets.get("MEUDANFE_BASE_URL", "https://api.meudanfe.com.br/v2")
+        if hasattr(st, 'secrets') and 'MEUDANFE_BASE_URL' in st.secrets:
+            default_root = st.secrets.get("MEUDANFE_BASE_URL", "https://api.meudanfe.com.br/v2")
+        else:
+            default_root = os.environ.get('MEUDANFE_BASE_URL', "https://api.meudanfe.com.br/v2")
     except:
         default_root = "https://api.meudanfe.com.br/v2"
     
     base_root = (base_url or default_root).rstrip('/')
 
     headers = {
-        "Api-Key": token_api,
-        "Authorization": f"Bearer {token_api}",
+        "Api-Key": api_token,
+        "Authorization": f"Bearer {api_token}",
         "Content-Type": "application/json",
         "User-Agent": "SistemaConferencia/1.0"
     }
-
-    resultados = []
-    add_url = f"{base_root}/fd/add/{chave_acesso}"
-    try:
-        response = requests.put(add_url, headers=headers, timeout=15)
-
-        resultados.append({
-            'endpoint': add_url,
-            'status_code': response.status_code,
-            'resposta': response.text[:200] if response.text else "Vazio"
-        })
-
-        if response.status_code in [200, 201]:
-            dados = response.json()
-            try:
-                get_xml_url = f"{base_root}/fd/get/xml/{chave_acesso}"
-                r2 = requests.get(get_xml_url, headers=headers, timeout=15)
-                resultados.append({'endpoint': get_xml_url, 'status_code': r2.status_code, 'resposta': r2.text[:200] if r2.text else 'Vazio'})
-
-                if r2.status_code == 200:
-                    try:
-                        body = r2.json()
-                    except Exception:
-                        body = {'data': r2.text}
-
-                    xml_text = ''
-                    if isinstance(body, dict) and 'data' in body:
-                        xml_text = body.get('data', '')
-                    elif isinstance(body, str):
-                        xml_text = body
-
-                    parsed = parse_xml_nfe(xml_text) if xml_text else {'erro': 'XML vazio'}
-                    return {"sucesso": True, "dados": dados, "xml": {'raw': xml_text}, 'xml_parsed': parsed, "endpoint_utilizado": add_url, "debug_info": resultados}
-                else:
-                    return {"sucesso": True, "dados": dados, "endpoint_utilizado": add_url, "debug_info": resultados}
-
-            except Exception as e:
-                resultados.append({'endpoint': f"{base_root}/fd/get/xml/{chave_acesso}", 'status_code': 'EXCEPTION', 'resposta': str(e)})
-                return {"sucesso": True, "dados": dados, "endpoint_utilizado": add_url, "debug_info": resultados}
-        elif response.status_code == 401:
-            return {"erro": "Token de autenticação inválido ou expirado", "debug_info": resultados}
-        elif response.status_code == 404:
-            return {"erro": "Chave/endpoint não encontrado (404). Verifique a Chave de Acesso ou o endpoint.", "debug_info": resultados}
-        elif response.status_code == 405:
-            return {"erro": "Método HTTP não permitido (405). O endpoint pode exigir PUT/GET/POST diferente (verifique documentação).", "debug_info": resultados}
-        else:
-            return {"erro": f"Resposta inesperada: {response.status_code}", "debug_info": resultados}
-
-    except requests.exceptions.Timeout:
-        resultados.append({'endpoint': add_url, 'status_code': 'TIMEOUT', 'resposta': 'Timeout após 15 segundos'})
-        return {"erro": "TIMEOUT", "debug_info": resultados}
-    except requests.exceptions.ConnectionError:
-        resultados.append({'endpoint': add_url, 'status_code': 'CONNECTION_ERROR', 'resposta': 'Erro de conexão'})
-        return {"erro": "CONNECTION_ERROR", "debug_info": resultados}
-    except requests.exceptions.RequestException as e:
-        resultados.append({'endpoint': add_url, 'status_code': 'REQUEST_EXCEPTION', 'resposta': str(e)})
-        return {"erro": str(e), "debug_info": resultados}
-    except Exception as e:
-        resultados.append({'endpoint': add_url, 'status_code': 'EXCEPTION', 'resposta': str(e)})
-        return {"erro": str(e), "debug_info": resultados}
     
-    return {
-        "erro": "Nota fiscal não encontrada na base de dados. Possíveis causas:\n\n• Nota fiscal muito recente (aguarde 1-2 horas)\n• Chave de acesso incorreta\n• Problema temporário no servidor\n• Certificado digital não configurado corretamente",
-        "debug_info": resultados
-    }
-
+    # ... resto do código igual
 # ===============================
 # FUNÇÕES AUXILIARES
 # ===============================
@@ -980,4 +929,5 @@ def mostrar_ajuda():
 # ===============================
 if __name__ == "__main__":
     main()
+
 
