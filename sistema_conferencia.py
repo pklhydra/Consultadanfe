@@ -14,7 +14,7 @@ import json
 # CONFIGURAÇÃO DA API MEUDANFE (DIRETA NO CÓDIGO)
 # ===============================
 MEUDANFE_API_TOKEN = "fcf2af36-1fc9-4dfc-8b46-25bd19f54415"  # Token fixo no código
-MEUDANFE_BASE_URL = "https://api.meudanfe.com.br/v2"  # URL da API
+MEUDANFE_BASE_URL = "https://api.meudanfe.com.br/v2/fd/add/{Chave-Acesso}"  # URL da API
 
 # ===============================
 # CONFIGURAÇÃO DA PÁGINA
@@ -807,3 +807,4 @@ def mostrar_ajuda():
 # ===============================
 if __name__ == "__main__":
     main()
+
