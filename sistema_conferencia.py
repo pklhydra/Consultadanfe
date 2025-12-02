@@ -10,6 +10,21 @@ import gspread
 from google.oauth2.service_account import Credentials
 import json
 
+def main():
+    # TESTE TEMPORÁRIO - REMOVA DEPOIS
+    st.write("### Testando Secrets...")
+    
+    try:
+        st.write("Google Sheets configurado?", 'gcp_service_account' in st.secrets)
+        st.write("Token MeuDanfe configurado?", 'MEUDANFE_TOKEN' in st.secrets)
+        st.write("Usuários configurados?", 'usuarios' in st.secrets)
+    except Exception as e:
+        st.error(f"Erro ao ler secrets: {e}")
+    
+    st.markdown('<h1 class="main-header">📦 Sistema de Conferência DANFE</h1>', unsafe_allow_html=True)
+
+#só tirar depois a def main
+
 # Configuração da página
 st.set_page_config(
     page_title="Sistema Conferência DANFE",
@@ -965,3 +980,4 @@ def mostrar_ajuda():
 # ===============================
 if __name__ == "__main__":
     main()
+
