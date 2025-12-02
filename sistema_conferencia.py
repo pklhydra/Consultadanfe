@@ -501,79 +501,40 @@ def mostrar_nova_conferencia(polo, usuario):
                 st.error(f"❌ {mensagem}")
         
         if st.button("🔍 Consultar Nota Fiscal", width="stretch"):
-            if len(chave_acesso) == 44 and chave_acesso.isdigit():
-                with st.spinner("Consultando nota fiscal... Isso pode levar alguns segundos"):
-                    dados_nfe = extrair_dados_da_chave(chave_acesso)
+    if len(chave_acesso) == 44 and chave_acesso.isdigit():
+        with st.spinner("Consultando nota fiscal... Isso pode levar alguns segundos"):
+            # Primeiro extrai dados básicos da chave
+            dados_nfe = extrair_dados_da_chave(chave_acesso)
+            
+            if 'erro' not in dados_nfe:
+                # AGORA USA A VERSÃO SIMPLES PARA TESTE
+                resultado = consultar_danfe_meudanfe_simples(chave_acesso)
+                
+                if resultado.get('sucesso'):
+                    st.balloons()
+                    st.success("✅ Nota fiscal encontrada via API!")
                     
-                    if 'erro' not in dados_nfe:
-                        try:
-                            token_api = st.session_state.get('token_meudanfe') or st.secrets.get("MEUDANFE_TOKEN", "")
-                        except:
-                            token_api = ""
-                            
-                        resultado_meudanfe = consultar_danfe_meudanfe(chave_acesso, token_api=token_api)
-                        
-                        if resultado_meudanfe.get('sucesso'):
-                            produtos = []
-                            if 'xml_parsed' in resultado_meudanfe and isinstance(resultado_meudanfe['xml_parsed'], dict) and 'erro' not in resultado_meudanfe['xml_parsed']:
-                                parsed = resultado_meudanfe['xml_parsed']
-                                dados_nfe['numero_nota'] = parsed.get('numero_nota', dados_nfe.get('numero_nota', ''))
-                                dados_nfe['serie'] = parsed.get('serie', dados_nfe.get('serie', ''))
-                                dados_nfe['data_emissao'] = parsed.get('data_emissao', dados_nfe.get('data_emissao', ''))
-                                dados_nfe['emitente_cnpj'] = parsed.get('emitente_cnpj', dados_nfe.get('emitente_cnpj', ''))
-                                dados_nfe['destinatario'] = parsed.get('destinatario', dados_nfe.get('destinatario', ''))
-                                dados_nfe['valor_nota'] = parsed.get('valor_nota', dados_nfe.get('valor_nota', ''))
-
-                                parsed_produtos = parsed.get('produtos', [])
-                                if parsed_produtos:
-                                    produtos = parsed_produtos
-                                else:
-                                    produtos = [{
-                                        'codigo': '001',
-                                        'descricao': 'Produto - Informações não disponíveis',
-                                        'quantidade': 1,
-                                        'unidade': 'UN'
-                                    }]
-
-                            elif 'dados' in resultado_meudanfe and isinstance(resultado_meudanfe['dados'], dict):
-                                produtos = processar_produtos_nota(resultado_meudanfe)
-                            else:
-                                produtos = [{
-                                    'codigo': '001',
-                                    'descricao': 'Produto - Informações não disponíveis',
-                                    'quantidade': 1,
-                                    'unidade': 'UN'
-                                }]
-
-                            st.session_state.dados_nfe = dados_nfe
-                            st.session_state.resultado_meudanfe = resultado_meudanfe
-                            st.session_state.produtos = produtos
-                            st.info(f"📦 **{len(produtos)} produto(s) (resultado da consulta)**")
-                            st.info("⚠️ O campo 'Check' ficará em branco — o funcionário deverá preencher na conferencia")
-                            
-                        else:
-                            st.error(f"❌ {resultado_meudanfe.get('erro', 'Erro na consulta')}")
-                            
-                            if 'debug_info' in resultado_meudanfe:
-                                with st.expander("🔍 Detalhes do erro (técnico)"):
-                                    for debug in resultado_meudanfe['debug_info']:
-                                        st.write(f"**Endpoint:** {debug['endpoint']}")
-                                        st.write(f"**Status:** {debug['status_code']}")
-                                        st.write(f"**Resposta:** {debug['resposta']}")
-                                        st.write("---")
-                            
-                            st.session_state.dados_nfe = dados_nfe
-                            st.session_state.resultado_meudanfe = resultado_meudanfe
-                            st.session_state.produtos = [{
-                                'codigo': '001',
-                                'descricao': 'Produto - Erro na consulta',
-                                'quantidade': 1,
-                                'unidade': 'UN'
-                            }]
+                    # Processa os dados...
+                    st.session_state.dados_nfe = dados_nfe
+                    st.session_state.resultado_meudanfe = resultado
+                    
+                    # Tenta extrair produtos
+                    produtos = []
+                    if 'dados' in resultado:
+                        produtos = processar_produtos_nota(resultado)
+                    
+                    if produtos:
+                        st.session_state.produtos = produtos
+                        st.success(f"📦 {len(produtos)} produto(s) encontrado(s)")
                     else:
-                        st.error(f"Erro: {dados_nfe['erro']}")
+                        st.warning("⚠️ Nenhum produto encontrado na nota")
+                        
+                else:
+                    st.error(f"❌ {resultado.get('erro', 'Erro na consulta')}")
             else:
-                st.error("Chave de acesso deve conter exatamente 44 dígitos numéricos!")
+                st.error(f"Erro: {dados_nfe['erro']}")
+    else:
+        st.error("Chave de acesso deve conter exatamente 44 dígitos numéricos!")
     
     with col2:
         st.subheader("Informações do Polo")
@@ -931,6 +892,7 @@ def mostrar_ajuda():
 # ===============================
 if __name__ == "__main__":
     main()
+
 
 
 
