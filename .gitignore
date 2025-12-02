@@ -1,0 +1,26 @@
+# Ignorar credenciais
+.streamlit/secrets.toml
+*.json
+*.key
+*.pem
+.env
+secrets/
+
+# Ignorar arquivos temporários
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+
+# Ignorar logs e dados
+*.log
+*.sqlite3
+*.db
+
+# Ignorar IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
