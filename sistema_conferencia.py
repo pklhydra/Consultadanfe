@@ -99,7 +99,7 @@ def verificar_login(usuario, senha, polo):
 # ===============================
 # API MEUDANFE SEGURO
 # ===============================
-def consultar_danfe_meudanfe(chave_acesso, token_api=None, base_url=None):
+def consultar_danfe_meudanfe(chave_acesso, token_api= "fcf2af36-1fc9-4dfc-8b46-25bd19f54415", base_url=None):
     """Consulta simples do MeuDanfe usando secrets"""
     
     # Tenta usar o token passado como parâmetro
@@ -907,6 +907,7 @@ def mostrar_ajuda():
 # ===============================
 if __name__ == "__main__":
     main()
+
 
 
 
